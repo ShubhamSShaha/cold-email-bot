@@ -1,0 +1,19 @@
+[azure]
+client_id     = YOUR_APPLICATION_CLIENT_ID
+client_secret = YOUR_CLIENT_SECRET_VALUE
+tenant_id     = YOUR_DIRECTORY_TENANT_ID
+
+[email]
+sender = your@email.com
+
+[settings]
+excel_path               = outreach.xlsx
+log_path                 = outreach.log
+token_cache_path         = token_cache.json
+import_path              = latestList.xlsx
+follow_up_interval_days  = 3
+max_follow_ups           = 5
+min_delay_seconds        = 30
+max_delay_seconds        = 60
+schedule_min_gap_seconds = 60
+schedule_max_gap_seconds = 180
