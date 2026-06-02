@@ -1,6 +1,25 @@
+# Credentials — never commit these
 config.ini
 token_cache.json
+
+# Excel files with personal data
+outreach.xlsx
+latestList.xlsx
+
+# Logs
 outreach.log
+*.log
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
 .env
+venv/
+.venv/
+
+# Mac
+.DS_Store
+
+# VS Code
+.vscode/
