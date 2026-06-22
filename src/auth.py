@@ -18,9 +18,10 @@ def _load_config():
 
 
 def _get_app(cfg):
+    tenant_id=cfg["azure"]["tenant_id"]
     return msal.PublicClientApplication(
         client_id=cfg["azure"]["client_id"],
-        authority=f"https://login.microsoftonline.com/common",
+        authority=f"https://login.microsoftonline.com/"+tenant_id,
     )
 
 

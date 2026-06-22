@@ -30,13 +30,14 @@ def _print_menu():
     print("\n" + "=" * 50)
     print("  Cold Email Bot")
     print("=" * 50)
-    print("  1. Send new emails       (Pending contacts)")
-    print("  1b. Schedule sends       (Pick start date/time)")
-    print("  2. Run daily check       (Replies + Follow-ups)")
-    print("  3. Status summary")
-    print("  4. Fix email for a contact")
-    print("  5. Import contacts from file")
-    print("  6. Exit")
+    print("  1.  Send new emails       (Pending contacts)")
+    print("  1b. Schedule sends        (Pick start date/time)")
+    print("  2.  Run daily check       (Replies + Follow-ups)")
+    print("  3.  Status summary")
+    print("  4.  Fix email for a contact")
+    print("  5.  Import contacts from file")
+    print("  7.  Backfill conversation IDs")
+    print("  8.  Exit")
     print("=" * 50)
 
 
@@ -70,6 +71,7 @@ def _import_contacts():
     logging.info(
         f"IMPORT | imported={result['imported']} skipped={result['skipped']} | {path}"
     )
+
 
 def main():
     if not os.path.exists(CONFIG_PATH):
@@ -109,13 +111,17 @@ def main():
         elif choice == "5":
             _import_contacts()
 
-        elif choice == "6":
+        elif choice == "7":
+            print("\n── Backfill Conversation IDs ─────────────────")
+            mailer.backfill_conversation_ids()
+
+        elif choice == "8":
             logging.info("Cold Email Bot exited")
             print("Goodbye.")
             break
 
         else:
-            print("Invalid option. Enter 1–6.")
+            print("Invalid option. Enter 1, 1b, 2, 3, 4, 5, 7, or 8.")
 
 
 if __name__ == "__main__":
