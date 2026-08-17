@@ -1,9 +1,9 @@
-import configparser
+import os
 from datetime import datetime, date
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-CONFIG_PATH = "config.ini"
+import config
 
 ACTIVE_SHEET   = "Active Outreach"
 REPLIED_SHEET  = "Replied"
@@ -47,17 +47,36 @@ def _style_row(ws, row_idx, n_cols):
 
 
 def _excel_path():
-    cfg = configparser.ConfigParser()
-    cfg.read(CONFIG_PATH)
-    return cfg["settings"]["excel_path"]
+    return config.path("excel_path", "outreach.xlsx")
+
+
+def _follow_up_interval() -> int:
+    return config.get_int("settings", "follow_up_interval_days", 3)
+
+
+def _max_follow_ups() -> int:
+    return config.get_int("settings", "max_follow_ups", 5)
 
 
 def _load():
-    return load_workbook(_excel_path())
+    path = _excel_path()
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"Tracker not found at {path}\n"
+            "Copy outreach.template.xlsx to outreach.xlsx, or fix settings.excel_path."
+        )
+    return load_workbook(path)
 
 
 def _save(wb):
-    wb.save(_excel_path())
+    path = _excel_path()
+    lock = os.path.join(os.path.dirname(path), "~$" + os.path.basename(path))
+    if os.path.exists(lock):
+        raise RuntimeError(
+            f"{os.path.basename(path)} is open in Excel — close it before running, "
+            "otherwise your edits and the bot's will overwrite each other."
+        )
+    wb.save(path)
 
 
 def _cell_value(ws, row, col):
@@ -119,18 +138,20 @@ def get_followup_candidates() -> list[dict]:
     wb = _load()
     ws = wb[ACTIVE_SHEET]
     today = date.today()
+    interval = _follow_up_interval()
+    max_ups = _max_follow_ups()
     candidates = []
     for row in range(2, ws.max_row + 1):
         status = str(_cell_value(ws, row, COL["status"]) or "").strip().lower()
         if status not in ("sent", "follow-up sent"):
             continue
         count = _cell_value(ws, row, COL["followup_count"]) or 0
-        if count >= 5:
+        if count >= max_ups:
             continue
         last = _to_date(_cell_value(ws, row, COL["last_followup"]))
         sent = _to_date(_cell_value(ws, row, COL["date_sent"]))
         reference_date = last if last else sent
-        if reference_date and (today - reference_date).days >= 3:
+        if reference_date and (today - reference_date).days >= interval:
             candidates.append(_row_to_dict(ws, row))
     return candidates
 
@@ -161,10 +182,12 @@ def get_empty_conversation_ids() -> list[dict]:
 
 # ── Write updates ─────────────────────────────────────────────────────────────
 
-def mark_sent(row: int, message_id: str, conversation_id: str = ""):
+def mark_sent(row: int, message_id: str, conversation_id: str = "", sent_date: date = None):
+    """sent_date defaults to today; scheduled sends pass their delivery date so
+    follow-ups are counted from when the mail actually goes out, not from now."""
     wb = _load()
     ws = wb[ACTIVE_SHEET]
-    ws.cell(row=row, column=COL["date_sent"]).value      = date.today()
+    ws.cell(row=row, column=COL["date_sent"]).value      = sent_date or date.today()
     ws.cell(row=row, column=COL["followup_count"]).value = 0
     ws.cell(row=row, column=COL["status"]).value         = "Sent"
     ws.cell(row=row, column=COL["message_id"]).value     = message_id
@@ -256,6 +279,8 @@ def get_status_summary() -> dict:
     ws_replied  = wb[REPLIED_SHEET]
     ws_archived = wb[ARCHIVED_SHEET]
     today = date.today()
+    interval = _follow_up_interval()
+    max_ups = _max_follow_ups()
     active_count = pending = sent = followup_sent = due_today = 0
 
     for row in range(2, ws_active.max_row + 1):
@@ -268,16 +293,16 @@ def get_status_summary() -> dict:
         elif status.lower() == "sent":
             sent += 1
             count = _cell_value(ws_active, row, COL["followup_count"]) or 0
-            if count < 5:
+            if count < max_ups:
                 sent_date = _to_date(_cell_value(ws_active, row, COL["date_sent"]))
-                if sent_date and (today - sent_date).days >= 3:
+                if sent_date and (today - sent_date).days >= interval:
                     due_today += 1
         elif status.lower() == "follow-up sent":
             followup_sent += 1
             count = _cell_value(ws_active, row, COL["followup_count"]) or 0
-            if count < 5:
+            if count < max_ups:
                 last = _to_date(_cell_value(ws_active, row, COL["last_followup"]))
-                if last and (today - last).days >= 3:
+                if last and (today - last).days >= interval:
                     due_today += 1
 
     def _count_rows(ws):
@@ -343,10 +368,15 @@ def import_from_file(source_path: str) -> dict:
             idx = col_index.get(key)
             return str(row_vals[idx]).strip() if idx is not None and row_vals[idx] is not None else ""
 
+        # Trailing blank rows are an artefact of how the sheet was authored,
+        # not real contacts — ignore them instead of reporting phantom skips.
+        if not any(v is not None and str(v).strip() for v in row_vals):
+            continue
+
         email = get("email")
         if not email:
             skipped += 1
-            reasons.append("Row skipped — no email")
+            reasons.append(f"Skipped '{get('company') or get('contact_name')}' — no email")
             continue
 
         next_row = _next_empty_row(dst_ws)

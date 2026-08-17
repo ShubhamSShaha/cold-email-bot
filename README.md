@@ -1,6 +1,6 @@
 # Cold Email Bot
 
-A Python-based cold outreach automation system that sends personalized emails and automated follow-ups through Outlook using the Microsoft Graph API. Built to solve a real problem during my MBA internship search, iterated based on actual usage, and currently running in production.
+A Python-based cold outreach automation system that sends personalized emails and automated follow-ups through Gmail using the Gmail API. Built to solve a real problem during my MBA internship search, iterated based on actual usage, and currently running in production.
 
 ## Results
 
@@ -21,7 +21,7 @@ Existing tools like Mailchimp or Outreach.io are built for marketing teams runni
 
 A lightweight Python automation system that:
 
-- Sends each email individually through my actual Outlook account via Microsoft Graph API so every email arrives as a personal send, not a bulk campaign
+- Sends each email individually through my actual Gmail account via the Gmail API so every email arrives as a personal send, not a bulk campaign
 - Schedules batches of emails at a specific date and time with randomized 1-3 minute gaps between sends to mimic human behavior and stay out of spam filters
 - Follows up automatically every 3 days as a reply in the same thread, so the recipient sees one continuous conversation rather than disconnected emails
 - Detects replies by matching conversation IDs, not just sender email addresses, which eliminates false positives and ensures no one receives a follow-up after they have already responded
@@ -81,10 +81,9 @@ A lightweight dashboard to visualize reply rates by company type, industry, and 
 ## Tech Stack
 
 - Python 3.9+
-- Microsoft Graph API with OAuth2 device code flow
-- MSAL for authentication and token refresh
+- Gmail API with a hand-rolled OAuth2 device-code flow (no server-side scheduled
+  send — a local scheduler sleeps between sends instead, see Workflow below)
 - openpyxl for Excel read and write
-- Outlook scheduled send for time-based delivery
 
 ## Project Structure
 
@@ -97,8 +96,9 @@ cold-email-bot/
 ├── README.md
 └── src/
     ├── main.py              # CLI entry point
-    ├── auth.py              # Microsoft OAuth2 login and token refresh
-    ├── graph.py             # Microsoft Graph API calls
+    ├── config.py            # Config loading, paths anchored to the project root
+    ├── auth.py              # Google OAuth2 device-code login and token refresh
+    ├── gmail.py             # Gmail API calls
     ├── excel.py             # Excel read and write operations
     └── mailer.py            # Send, schedule, follow-up, and reply detection logic
 ```
@@ -115,17 +115,24 @@ cd cold-email-bot
 ### 2. Install dependencies
 
 ```bash
-pip3 install msal openpyxl requests
+pip3 install openpyxl requests
 ```
 
-### 3. Register an Azure app
+### 3. Register a Google Cloud app
 
-1. Go to [portal.azure.com](https://portal.azure.com)
-2. Microsoft Entra ID → App registrations → New registration
-3. Name: cold-email-bot, Supported account types: Multitenant
-4. Add delegated permissions: Mail.Send, Mail.ReadWrite
-5. Certificates and secrets → New client secret → copy the value
-6. Authentication → Allow public client flows → Yes
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) → create or select a project
+2. APIs & Services → Library → enable **Gmail API**
+3. APIs & Services → OAuth consent screen → User type **External**
+   - Scopes → add `gmail.send` and `gmail.readonly` (not `gmail.modify` — this tool never mutates Gmail state, only sends and reads)
+   - Test users → add the Gmail address you'll send from
+   - Leave publishing status as **Testing** (see Troubleshooting below for why)
+4. APIs & Services → Credentials → Create OAuth client ID → type **Desktop app**
+   - Must be this type. Gmail's scopes are Google-classified as sensitive/restricted,
+     and Google's device-code flow (the "TVs and Limited Input devices" client type)
+     rejects them outright with `invalid_scope` — confirmed against the live endpoint,
+     not just a guess. Login instead opens your browser and catches the redirect on a
+     short-lived local server, which only a Desktop app client supports.
+5. Copy the **Client ID** and **Client secret** into `config.ini`
 
 ### 4. Configure credentials
 
@@ -145,22 +152,32 @@ cp latestList.template.xlsx latestList.xlsx
 ### 6. Run
 
 ```bash
-cd src
-python3 main.py
+python3 src/main.py
 ```
 
-On first run you will be prompted to log in via a device code. After that the token refreshes automatically.
+Paths are resolved relative to the folder holding `config.ini`, so it runs the same
+from anywhere.
+
+On first run you will be prompted to log in via a device code. **Sign in as the Gmail
+account you want to send from.** Google will warn "Google hasn't verified this app" —
+click Advanced → Go to (app name); that's expected for a personal-use app you own.
+After that the token refreshes automatically, until the 7-day Testing-mode expiry below.
+
+Run option 0 first to confirm the login and mailbox work before sending anything.
 
 ## CLI Options
 
 ```
+0.  Check connection      - shows who you are signed in as and whether the mailbox works
 1.  Send new emails       - sends all Pending contacts immediately with random delays
 1b. Schedule sends        - schedule all Pending emails from a specific date and time
 2.  Run daily check       - scans inbox for replies, then sends due follow-ups
 3.  Status summary        - shows pipeline counts and follow-ups due today
 4.  Fix email address     - correct a wrong email and reset that contact to Pending
 5.  Import contacts       - imports from latestList.xlsx into Active Outreach
-6.  Exit
+7.  Backfill conversation IDs - recovers thread IDs for rows missing them
+8.  Exit
+9.  Sign out              - clears the cached login so you can switch accounts
 ```
 
 ## Workflow
@@ -196,7 +213,12 @@ Select option: 1b
 Enter start date and time (YYYY-MM-DD HH:MM): 2026-06-01 09:00
 ```
 
-Emails go out with 1 to 3 minute random gaps. 100 emails take roughly 3 hours. Outlook delivers them automatically with no need to keep your computer on.
+Emails go out with 1 to 3 minute random gaps. 100 emails take roughly 3 hours. Gmail has
+no server-side scheduled send like Outlook does, so this script sends each email itself
+when its time comes — **keep the terminal open and the machine awake for the whole
+window.** On macOS, `caffeinate -s python3 src/main.py` prevents sleep during a long run.
+If you Ctrl+C partway through, already-sent contacts are marked Sent and the rest stay
+Pending — just re-run option 1b to pick up where you left off.
 
 ### Daily check
 
@@ -205,13 +227,12 @@ Run Option 2 each morning. It scans your inbox for replies first, moves them to 
 ## Configuration
 
 ```ini
-[azure]
-client_id     = your_client_id
+[google]
+client_id     = your_client_id.apps.googleusercontent.com
 client_secret = your_client_secret
-tenant_id     = your_tenant_id
 
 [email]
-sender = your@email.com
+sender = your@gmail.com
 
 [settings]
 excel_path               = outreach.xlsx
@@ -226,11 +247,48 @@ schedule_min_gap_seconds = 60
 schedule_max_gap_seconds = 180
 ```
 
+## Troubleshooting
+
+**Login stopped working after about a week**
+
+Expected. Google's "Testing" publishing status (see Setup §3) issues refresh tokens that
+expire every 7 days — moving to Production for these scopes routes through Google's
+verification process, which is disproportionate for a single-user local tool. Just pick
+any option again; an expired refresh token automatically drops into a fresh browser-login
+prompt, no manual sign-out needed.
+
+**"Google hasn't verified this app"**
+
+Expected for a Testing-status app you own — click Advanced → Go to (app name) to continue.
+
+**`invalid_scope` during login, or login never opens a working prompt**
+
+The OAuth client in Google Cloud Console is the wrong type. It must be **Desktop app** —
+"TVs and Limited Input devices" rejects Gmail's scopes outright as too sensitive for that
+grant type, and Web application clients don't support this flow's redirect at all.
+
+**Browser doesn't open automatically, or login times out after 5 minutes**
+
+Copy the URL printed in the terminal into a browser manually. The login flow runs a
+short-lived server on `127.0.0.1` to catch the redirect — no other setup should be needed,
+but firewalls that block local loopback ports are a rare cause if it hangs.
+
+**403 errors on Gmail calls**
+
+A scope wasn't granted at consent. Run option 9 (sign out), then retry and accept all
+requested permissions on the consent screen.
+
+**"outreach.xlsx is open in Excel"**
+
+Close the workbook. Excel holds a `~$outreach.xlsx` lock while it is open, and the bot
+refuses to save over it rather than silently losing one side of the edits.
+
 ## Security
 
 - config.ini and token_cache.json are in .gitignore and never committed
 - OAuth2 device code flow - no password stored anywhere
-- Refresh tokens expire after 90 days of inactivity; re-login takes 30 seconds
+- Refresh tokens expire every 7 days while the Google Cloud app is in Testing status
+  (see Troubleshooting) — re-login takes 30 seconds
 
 ## License
 

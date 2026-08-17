@@ -1,10 +1,14 @@
-[azure]
-client_id     = YOUR_APPLICATION_CLIENT_ID
-client_secret = YOUR_CLIENT_SECRET_VALUE
-tenant_id     = YOUR_DIRECTORY_TENANT_ID
+[google]
+# OAuth client from Google Cloud Console (APIs & Services > Credentials).
+# Client type MUST be "Desktop app" — Gmail's scopes are restricted and Google
+# rejects them outright on the TV/limited-input device flow, so login opens a
+# browser and catches the redirect on a short-lived local server instead.
+client_id     = YOUR_CLIENT_ID.apps.googleusercontent.com
+client_secret = YOUR_CLIENT_SECRET
 
 [email]
-sender = your@email.com
+# The Gmail address you send from. Must match the account you authenticate with.
+sender = your@gmail.com
 
 [settings]
 excel_path               = outreach.xlsx

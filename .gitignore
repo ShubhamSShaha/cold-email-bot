@@ -6,6 +6,9 @@ token_cache.json
 outreach.xlsx
 latestList.xlsx
 
+# Excel lock files (created while a workbook is open)
+~$*
+
 # Logs
 outreach.log
 *.log
